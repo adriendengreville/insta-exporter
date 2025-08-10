@@ -23,7 +23,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -53,10 +55,13 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavController
+import androidx.navigation.NavType
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.app.data.NasConfigurationManager
 import com.example.app.data.NasFileManager
+import com.example.app.ui.browser.NasBrowserScreen
 import com.example.app.ui.settings.SettingsScreen
 import com.example.app.ui.theme.InstaExporterTheme
 import kotlinx.coroutines.launch
@@ -85,6 +90,7 @@ fun AppNavigation() {
                 val currentDestination = navBackStackEntry?.destination
                 val items = listOf(
                     Screen.Main,
+                    Screen.Browser,
                     Screen.Settings
                 )
                 items.forEach { screen ->
@@ -112,14 +118,34 @@ fun AppNavigation() {
             Modifier.padding(innerPadding)
         ) {
             composable(Screen.Main.route) { MainScreen(navController, snackbarHostState) }
-            composable(Screen.Settings.route) { SettingsScreen() }
+            composable(
+                Screen.Browser.route + "?path={path}",
+                arguments = listOf(navArgument("path") { defaultValue = "" })
+            ) { backStackEntry ->
+                NasBrowserScreen(
+                    navController,
+                    snackbarHostState,
+                    backStackEntry.arguments?.getString("path") ?: ""
+                )
+            }
+            composable(Screen.Settings.route) { SettingsScreen(snackbarHostState) }
         }
     }
 }
 
 sealed class Screen(val route: String, val icon: ImageVector) {
     object Main : Screen("Main", Icons.Default.Home)
+    object Browser : Screen("Browser", Icons.Default.Star)
     object Settings : Screen("Settings", Icons.Default.Settings)
+
+    fun withArgs(vararg args: String): String {
+        return buildString {
+            append(route)
+            args.forEach { arg ->
+                append("?path=$arg")
+            }
+        }
+    }
 }
 
 @Composable
@@ -213,6 +239,12 @@ fun FileList(cameraFiles: List<File>, nasFiles: List<String>) {
                         imageVector = Icons.Default.Check,
                         contentDescription = "Uploaded",
                         tint = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Missing",
+                        tint = MaterialTheme.colorScheme.error
                     )
                 }
             }
