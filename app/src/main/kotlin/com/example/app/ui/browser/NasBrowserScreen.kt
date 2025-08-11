@@ -12,8 +12,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -106,14 +106,15 @@ fun NasBrowserScreen(navController: NavController, snackbarHostState: SnackbarHo
                             .fillMaxWidth()
                             .clickable {
                                 if (file.isDirectory) {
-                                    navController.navigate(Screen.NasBrowser.withArgs(file.path))
+                                    val newPath = if (path.isEmpty()) file.name else "$path${file.name}"
+                                    navController.navigate(Screen.NasBrowser.withArgs(newPath))
                                 }
                             }
                             .padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = if (file.isDirectory) Icons.Default.Star else Icons.Default.Favorite,
+                            imageVector = if (file.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
