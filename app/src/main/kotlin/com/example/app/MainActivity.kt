@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -64,10 +65,12 @@ import androidx.navigation.navArgument
 import com.example.app.data.NasConfigurationManager
 import com.example.app.data.NasFileManager
 import com.example.app.ui.browser.NasBrowserScreen
+import com.example.app.ui.components.UploadProgressModal
 import com.example.app.ui.settings.SettingsScreen
 import com.example.app.ui.theme.InstaExporterTheme
 import kotlinx.coroutines.launch
 import java.io.File
+import java.text.DecimalFormat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -157,9 +160,45 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
     val nasConfigurationManager = remember { NasConfigurationManager(context) }
     var nasFiles by remember { mutableStateOf<List<String>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
+    var fileToUpload by remember { mutableStateOf<File?>(null) }
+    var uploadProgress by remember { mutableStateOf(0f) }
+    var bytesUploaded by remember { mutableStateOf(0L) }
+    var totalBytes by remember { mutableStateOf(0L) }
+    var uploadSpeed by remember { mutableStateOf(0.0) }
+    var uploadError by remember { mutableStateOf<String?>(null) }
 
     val isNasSetup = nasConfigurationManager.getConfiguration() != null
     val isCameraConnected = getCameraFiles(context).isNotEmpty()
+
+    LaunchedEffect(fileToUpload) {
+        if (fileToUpload != null) {
+            val config = nasConfigurationManager.getConfiguration()!!
+            val password = nasConfigurationManager.getPassword()!!
+            val nasFileManager = NasFileManager(config, password)
+            var lastTime = System.currentTimeMillis()
+            var lastBytes = 0L
+
+            nasFileManager.uploadFile(fileToUpload!!) { written, total ->
+                bytesUploaded = written
+                totalBytes = total
+                uploadProgress = written.toFloat() / total.toFloat()
+
+                val now = System.currentTimeMillis()
+                val timeDiff = (now - lastTime) / 1000.0
+                if (timeDiff > 1) {
+                    val bytesDiff = written - lastBytes
+                    uploadSpeed = bytesDiff / timeDiff
+                    lastTime = now
+                    lastBytes = written
+                }
+            }.onFailure {
+                uploadError = it.message
+            }.onSuccess {
+                nasFiles = nasFiles + fileToUpload!!.name
+                fileToUpload = null
+            }
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -179,6 +218,22 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
     }
 
     Column(modifier = Modifier.padding(16.dp)) {
+        if (fileToUpload != null) {
+            UploadProgressModal(
+                file = fileToUpload!!,
+                progress = uploadProgress,
+                bytesUploaded = bytesUploaded,
+                totalBytes = totalBytes,
+                uploadSpeed = uploadSpeed,
+                error = uploadError,
+                onCancel = { fileToUpload = null },
+                onRetry = {
+                    uploadError = null
+                    fileToUpload = fileToUpload // Re-trigger the LaunchedEffect
+                }
+            )
+        }
+
         ChecklistItem(label = "NAS connection setup", isChecked = isNasSetup)
         ChecklistItem(label = "Camera connected", isChecked = isCameraConnected)
 
@@ -206,7 +261,11 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
                         CircularProgressIndicator()
                     }
                 } else {
-                    FileList(cameraFiles = cameraFiles, nasFiles = nasFiles)
+                    FileList(
+                        cameraFiles = cameraFiles,
+                        nasFiles = nasFiles,
+                        onUploadClick = { file -> fileToUpload = file }
+                    )
                 }
             }
         } else {
@@ -244,16 +303,24 @@ fun ChecklistItem(label: String, isChecked: Boolean) {
 }
 
 @Composable
-fun FileList(cameraFiles: List<File>, nasFiles: List<String>) {
+fun FileList(
+    cameraFiles: List<File>,
+    nasFiles: List<String>,
+    onUploadClick: (File) -> Unit
+) {
     LazyColumn {
         items(cameraFiles) { file ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = file.name)
+                Column {
+                    Text(text = file.name)
+                    Text(text = formatFileSize(file.length()), style = MaterialTheme.typography.bodySmall)
+                }
                 if (nasFiles.contains(file.name)) {
                     Icon(
                         imageVector = Icons.Default.Check,
@@ -261,15 +328,20 @@ fun FileList(cameraFiles: List<File>, nasFiles: List<String>) {
                         tint = MaterialTheme.colorScheme.primary
                     )
                 } else {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Missing",
-                        tint = MaterialTheme.colorScheme.error
-                    )
+                    IconButton(onClick = { onUploadClick(file) }) {
+                        Text("Upload")
+                    }
                 }
             }
         }
     }
+}
+
+private fun formatFileSize(size: Long): String {
+    if (size <= 0) return "0 B"
+    val units = arrayOf("B", "KB", "MB", "GB", "TB")
+    val digitGroups = (Math.log10(size.toDouble()) / Math.log10(1024.0)).toInt()
+    return DecimalFormat("#,##0.#").format(size / Math.pow(1024.0, digitGroups.toDouble())) + " " + units[digitGroups]
 }
 
 private fun getCameraFiles(context: Context): List<File> {

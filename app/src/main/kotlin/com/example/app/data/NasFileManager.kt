@@ -53,4 +53,33 @@ class NasFileManager(
             Result.failure(e)
         }
     }
+
+    suspend fun uploadFile(file: java.io.File, onProgress: (Long, Long) -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val baseContext = SingletonContext.getInstance()
+            val auth = NtlmPasswordAuthentication(baseContext, null, nasConfiguration.username, password)
+            val contextWithCreds = baseContext.withCredentials(auth)
+            val url = "smb://${nasConfiguration.server}/${nasConfiguration.sharedFolder}/${file.name}"
+            val smbFile = SmbFile(url, contextWithCreds)
+
+            val totalBytes = file.length()
+            var bytesWritten = 0L
+
+            file.inputStream().use { fis ->
+                smbFile.outputStream.use { fos ->
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    while (fis.read(buffer).also { bytesRead = it } != -1) {
+                        fos.write(buffer, 0, bytesRead)
+                        bytesWritten += bytesRead
+                        onProgress(bytesWritten, totalBytes)
+                    }
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
 }
