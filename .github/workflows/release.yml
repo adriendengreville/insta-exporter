@@ -1,0 +1,43 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        run: |
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -O /tmp/tools.zip
+          unzip /tmp/tools.zip -d /tmp/tools
+          mkdir -p ~/Android/sdk/cmdline-tools/latest
+          mv /tmp/tools/cmdline-tools/* ~/Android/sdk/cmdline-tools/latest
+          rm -rf /tmp/tools
+          rm /tmp/tools.zip
+          export ANDROID_SDK_ROOT="$HOME/Android/sdk"
+          export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
+          export PATH="$PATH:$ANDROID_SDK_ROOT/platform-tools"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.1"
+          yes | sdkmanager --licenses
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease
+
+      - name: Create Release and Upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/app-release.apk
+          tag_name: release-${{ github.run_number }}
+          body: "Release version ${{ github.run_number }}"
