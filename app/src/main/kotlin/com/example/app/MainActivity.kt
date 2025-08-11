@@ -60,6 +60,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.foundation.clickable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.app.data.NasConfigurationManager
@@ -328,9 +329,10 @@ fun FileList(
                         tint = MaterialTheme.colorScheme.primary
                     )
                 } else {
-                    IconButton(onClick = { onUploadClick(file) }) {
-                        Text("Upload")
-                    }
+                    Text(
+                        text = "⬆️",
+                        modifier = Modifier.clickable { onUploadClick(file) }
+                    )
                 }
             }
         }
