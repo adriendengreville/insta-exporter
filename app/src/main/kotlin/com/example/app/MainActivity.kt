@@ -53,6 +53,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavController
 import androidx.navigation.NavType
@@ -90,7 +92,6 @@ fun AppNavigation() {
                 val currentDestination = navBackStackEntry?.destination
                 val items = listOf(
                     Screen.Main,
-                    Screen.Browser,
                     Screen.Settings
                 )
                 items.forEach { screen ->
@@ -119,7 +120,7 @@ fun AppNavigation() {
         ) {
             composable(Screen.Main.route) { MainScreen(navController, snackbarHostState) }
             composable(
-                Screen.Browser.route + "?path={path}",
+                Screen.NasBrowser.route + "?path={path}",
                 arguments = listOf(navArgument("path") { defaultValue = "" })
             ) { backStackEntry ->
                 NasBrowserScreen(
@@ -128,15 +129,15 @@ fun AppNavigation() {
                     backStackEntry.arguments?.getString("path") ?: ""
                 )
             }
-            composable(Screen.Settings.route) { SettingsScreen(snackbarHostState) }
+            composable(Screen.Settings.route) { SettingsScreen(navController, snackbarHostState) }
         }
     }
 }
 
 sealed class Screen(val route: String, val icon: ImageVector) {
     object Main : Screen("Main", Icons.Default.Home)
-    object Browser : Screen("Browser", Icons.Default.Star)
     object Settings : Screen("Settings", Icons.Default.Settings)
+    object NasBrowser : Screen("NasBrowser", Icons.Default.Star)
 
     fun withArgs(vararg args: String): String {
         return buildString {
@@ -155,6 +156,10 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
     var hasPermission by remember { mutableStateOf(false) }
     val nasConfigurationManager = remember { NasConfigurationManager(context) }
     var nasFiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    val isNasSetup = nasConfigurationManager.getConfiguration() != null
+    val isCameraConnected = getCameraFiles(context).isNotEmpty()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -173,53 +178,68 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
         }
     }
 
-    if (hasPermission) {
-        val cameraFiles = getCameraFiles(context)
-        val config = nasConfigurationManager.getConfiguration()
-        val password = nasConfigurationManager.getPassword()
+    Column(modifier = Modifier.padding(16.dp)) {
+        ChecklistItem(label = "NAS connection setup", isChecked = isNasSetup)
+        ChecklistItem(label = "Camera connected", isChecked = isCameraConnected)
 
-        if (config != null && password != null) {
-            val nasFileManager = NasFileManager(config, password)
-            LaunchedEffect(Unit) {
-                nasFileManager.listFiles()
-                    .onSuccess { files -> nasFiles = files }
-                    .onFailure { error ->
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Error listing NAS files: ${error.message}")
+        if (hasPermission) {
+            if (isNasSetup && isCameraConnected) {
+                val cameraFiles = getCameraFiles(context)
+                val config = nasConfigurationManager.getConfiguration()!!
+                val password = nasConfigurationManager.getPassword()!!
+                val nasFileManager = NasFileManager(config, password)
+
+                LaunchedEffect(Unit) {
+                    isLoading = true
+                    nasFileManager.listFiles()
+                        .onSuccess { files -> nasFiles = files }
+                        .onFailure { error ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Error listing NAS files: ${error.message}")
+                            }
                         }
+                    isLoading = false
+                }
+
+                if (isLoading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
                     }
+                } else {
+                    FileList(cameraFiles = cameraFiles, nasFiles = nasFiles)
+                }
             }
-            FileList(cameraFiles = cameraFiles, nasFiles = nasFiles)
         } else {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("NAS not configured")
-                Button(onClick = { navController.navigate(Screen.Settings.route) }) {
-                    Text("Go to Settings")
+                Button(onClick = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                        intent.data = Uri.parse("package:${context.packageName}")
+                        context.startActivity(intent)
+                    } else {
+                        permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                    }
+                }) {
+                    Text("Request Permissions")
                 }
             }
         }
-    } else {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Button(onClick = {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                    intent.data = Uri.parse("package:${context.packageName}")
-                    context.startActivity(intent)
-                } else {
-                    permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-                }
-            }) {
-                Text("Request Permissions")
-            }
-        }
+    }
+}
+
+@Composable
+fun ChecklistItem(label: String, isChecked: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = if (isChecked) Icons.Default.Check else Icons.Default.Close,
+            contentDescription = null,
+            tint = if (isChecked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+        )
+        Text(text = label, modifier = Modifier.padding(start = 8.dp))
     }
 }
 

@@ -39,6 +39,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import com.example.app.Screen
 import com.example.app.data.NasConfigurationManager
 import com.example.app.data.NasFileManager
 import com.example.app.model.NasConfiguration
@@ -46,7 +48,7 @@ import com.example.app.ui.theme.InstaExporterTheme
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(snackbarHostState: SnackbarHostState) {
+fun SettingsScreen(navController: NavController, snackbarHostState: SnackbarHostState) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val nasConfigurationManager = remember { NasConfigurationManager(context) }
@@ -58,6 +60,12 @@ fun SettingsScreen(snackbarHostState: SnackbarHostState) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var sharedFolder by remember { mutableStateOf("") }
+
+    val navBackStackEntry = navController.currentBackStackEntry
+    val selectedPath = navBackStackEntry?.savedStateHandle?.getLiveData<String>("selected_path")
+    selectedPath?.observe(navBackStackEntry) { path ->
+        sharedFolder = path
+    }
 
     LaunchedEffect(Unit) {
         val config = nasConfigurationManager.getConfiguration()
@@ -99,12 +107,17 @@ fun SettingsScreen(snackbarHostState: SnackbarHostState) {
                     visualTransformation = PasswordVisualTransformation()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = sharedFolder,
-                    onValueChange = { sharedFolder = it },
-                    label = { Text("Shared Folder") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = sharedFolder,
+                        onValueChange = { sharedFolder = it },
+                        label = { Text("Shared Folder") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(onClick = { navController.navigate(Screen.NasBrowser.route) }) {
+                        Text("Browse")
+                    }
+                }
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = {

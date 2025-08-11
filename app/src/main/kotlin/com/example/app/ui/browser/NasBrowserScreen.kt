@@ -33,9 +33,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.example.app.Screen
 import com.example.app.data.NasConfigurationManager
 import com.example.app.data.NasFileManager
-import com.example.app.Screen
 import jcifs.smb.SmbFile
 import kotlinx.coroutines.launch
 
@@ -66,9 +66,21 @@ fun NasBrowserScreen(navController: NavController, snackbarHostState: SnackbarHo
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        if (path.isNotEmpty()) {
-            IconButton(onClick = { navController.popBackStack() }) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (path.isNotEmpty()) {
+                IconButton(onClick = { navController.popBackStack() }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                }
+            }
+            Button(onClick = {
+                navController.previousBackStackEntry?.savedStateHandle?.set("selected_path", path)
+                navController.popBackStack()
+            }) {
+                Text("Select this directory")
             }
         }
         if (isLoading) {
@@ -94,7 +106,7 @@ fun NasBrowserScreen(navController: NavController, snackbarHostState: SnackbarHo
                             .fillMaxWidth()
                             .clickable {
                                 if (file.isDirectory) {
-                                    navController.navigate(Screen.Browser.withArgs(file.path))
+                                    navController.navigate(Screen.NasBrowser.withArgs(file.path))
                                 }
                             }
                             .padding(8.dp),
