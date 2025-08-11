@@ -61,13 +61,13 @@ fun SettingsScreen(navController: NavController, snackbarHostState: SnackbarHost
     var password by remember { mutableStateOf("") }
     var sharedFolder by remember { mutableStateOf("") }
 
-    val navBackStackEntry = navController.currentBackStackEntry
-    val selectedPath = navBackStackEntry?.savedStateHandle?.getLiveData<String>("selected_path")
-    selectedPath?.observe(navBackStackEntry) { path ->
-        sharedFolder = path
-    }
-
     LaunchedEffect(Unit) {
+        val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
+        savedStateHandle?.getLiveData<String>("selected_path")?.observe(navController.currentBackStackEntry!!) {
+            sharedFolder = it
+            savedStateHandle.remove<String>("selected_path")
+        }
+
         val config = nasConfigurationManager.getConfiguration()
         if (config != null) {
             server = config.server
