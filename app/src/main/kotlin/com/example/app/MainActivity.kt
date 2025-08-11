@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -56,6 +57,9 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.CircularProgressIndicator
+import android.app.Activity
+import android.view.WindowManager
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavController
 import androidx.navigation.NavType
@@ -167,11 +171,24 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
     var totalBytes by remember { mutableStateOf(0L) }
     var uploadSpeed by remember { mutableStateOf(0.0) }
     var uploadError by remember { mutableStateOf<String?>(null) }
+    var refreshTrigger by remember { mutableStateOf(0) }
 
     val isNasSetup = nasConfigurationManager.getConfiguration() != null
     val isCameraConnected = getCameraFiles(context).isNotEmpty()
 
-    LaunchedEffect(fileToUpload) {
+    val window = (context as? Activity)?.window
+    DisposableEffect(window, fileToUpload) {
+        if (window != null && fileToUpload != null) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            if (window != null) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
+    LaunchedEffect(fileToUpload, refreshTrigger) {
         if (fileToUpload != null) {
             val config = nasConfigurationManager.getConfiguration()!!
             val password = nasConfigurationManager.getPassword()!!
@@ -235,8 +252,19 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
             )
         }
 
-        ChecklistItem(label = "NAS connection setup", isChecked = isNasSetup)
-        ChecklistItem(label = "Camera connected", isChecked = isCameraConnected)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                ChecklistItem(label = "NAS connection setup", isChecked = isNasSetup)
+                ChecklistItem(label = "Camera connected", isChecked = isCameraConnected)
+            }
+            IconButton(onClick = { refreshTrigger++ }) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+            }
+        }
 
         if (hasPermission) {
             if (isNasSetup && isCameraConnected) {
@@ -245,7 +273,7 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
                 val password = nasConfigurationManager.getPassword()!!
                 val nasFileManager = NasFileManager(config, password)
 
-                LaunchedEffect(Unit) {
+                LaunchedEffect(refreshTrigger) {
                     isLoading = true
                     nasFileManager.listFiles()
                         .onSuccess { files -> nasFiles = files }
