@@ -56,4 +56,12 @@ class NasConfigurationManager(context: Context) {
     fun getPassword(): String? {
         return encryptedPrefs.getString("password", null)
     }
+
+    fun saveValidity(isValid: Boolean) {
+        prefs.edit().putBoolean("is_valid", isValid).apply()
+    }
+
+    fun getValidity(): Boolean {
+        return prefs.getBoolean("is_valid", false)
+    }
 }
