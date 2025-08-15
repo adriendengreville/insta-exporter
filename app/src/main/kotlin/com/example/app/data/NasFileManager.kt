@@ -6,6 +6,7 @@ import jcifs.smb.NtlmPasswordAuthentication
 import jcifs.smb.SmbFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Properties
 
 class NasFileManager(
     private val nasConfiguration: NasConfiguration,
@@ -13,6 +14,8 @@ class NasFileManager(
 ) {
     suspend fun listFiles(): Result<List<String>> = withContext(Dispatchers.IO) {
         try {
+            System.setProperty("jcifs.smb.client.snd_buf_size", "131070")
+            System.setProperty("jcifs.smb.client.rcv_buf_size", "131070")
             val baseContext = SingletonContext.getInstance()
             val auth = NtlmPasswordAuthentication(baseContext, null, nasConfiguration.username, password)
             val contextWithCreds = baseContext.withCredentials(auth)
@@ -27,6 +30,8 @@ class NasFileManager(
 
     suspend fun testConnection(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            System.setProperty("jcifs.smb.client.snd_buf_size", "131070")
+            System.setProperty("jcifs.smb.client.rcv_buf_size", "131070")
             val baseContext = SingletonContext.getInstance()
             val auth = NtlmPasswordAuthentication(baseContext, null, nasConfiguration.username, password)
             val contextWithCreds = baseContext.withCredentials(auth)
@@ -42,6 +47,8 @@ class NasFileManager(
 
     suspend fun listFilesAndDirs(path: String): Result<List<SmbFile>> = withContext(Dispatchers.IO) {
         try {
+            System.setProperty("jcifs.smb.client.snd_buf_size", "131070")
+            System.setProperty("jcifs.smb.client.rcv_buf_size", "131070")
             val baseContext = SingletonContext.getInstance()
             val auth = NtlmPasswordAuthentication(baseContext, null, nasConfiguration.username, password)
             val contextWithCreds = baseContext.withCredentials(auth)
@@ -56,6 +63,8 @@ class NasFileManager(
 
     suspend fun uploadFile(file: java.io.File, onProgress: (Long, Long) -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            System.setProperty("jcifs.smb.client.snd_buf_size", "131070")
+            System.setProperty("jcifs.smb.client.rcv_buf_size", "131070")
             val baseContext = SingletonContext.getInstance()
             val auth = NtlmPasswordAuthentication(baseContext, null, nasConfiguration.username, password)
             val contextWithCreds = baseContext.withCredentials(auth)
@@ -67,7 +76,7 @@ class NasFileManager(
 
             file.inputStream().use { fis ->
                 smbFile.outputStream.use { fos ->
-                    val buffer = ByteArray(8192)
+                    val buffer = ByteArray(65536)
                     var bytesRead: Int
                     while (fis.read(buffer).also { bytesRead = it } != -1) {
                         fos.write(buffer, 0, bytesRead)
