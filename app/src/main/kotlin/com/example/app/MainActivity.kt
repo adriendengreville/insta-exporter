@@ -1,6 +1,7 @@
 package com.example.app
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -9,13 +10,17 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.storage.StorageManager
 import android.provider.Settings
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,22 +31,28 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,28 +60,20 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.navigation.NavController
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.foundation.layout.Box
-import androidx.compose.material3.CircularProgressIndicator
-import android.app.Activity
-import android.view.WindowManager
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.navigation.NavController
-import androidx.navigation.NavType
 import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.compose.foundation.clickable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.app.data.NasConfigurationManager
 import com.example.app.data.NasFileManager
+import com.example.app.model.UploadItem
+import com.example.app.model.UploadStatus
 import com.example.app.ui.browser.NasBrowserScreen
-import com.example.app.ui.components.UploadProgressModal
 import com.example.app.ui.settings.SettingsScreen
 import com.example.app.ui.theme.InstaExporterTheme
 import kotlinx.coroutines.launch
@@ -165,20 +168,17 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
     val nasConfigurationManager = remember { NasConfigurationManager(context) }
     var nasFiles by remember { mutableStateOf<List<String>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
-    var fileToUpload by remember { mutableStateOf<File?>(null) }
-    var uploadProgress by remember { mutableStateOf(0f) }
-    var bytesUploaded by remember { mutableStateOf(0L) }
-    var totalBytes by remember { mutableStateOf(0L) }
-    var uploadSpeed by remember { mutableStateOf(0.0) }
-    var uploadError by remember { mutableStateOf<String?>(null) }
+    var uploadQueue by remember { mutableStateOf<List<UploadItem>>(emptyList()) }
     var refreshTrigger by remember { mutableStateOf(0) }
+    var selectedFiles by remember { mutableStateOf<Set<File>>(emptySet()) }
 
     val isNasSetup = nasConfigurationManager.getConfiguration() != null
     val isCameraConnected = getCameraFiles(context).isNotEmpty()
 
+    val currentUploadingFile = uploadQueue.find { it.status == UploadStatus.UPLOADING }
     val window = (context as? Activity)?.window
-    DisposableEffect(window, fileToUpload) {
-        if (window != null && fileToUpload != null) {
+    DisposableEffect(window, currentUploadingFile) {
+        if (window != null && currentUploadingFile != null) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         onDispose {
@@ -188,32 +188,34 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
         }
     }
 
-    LaunchedEffect(fileToUpload, refreshTrigger) {
-        if (fileToUpload != null) {
+    LaunchedEffect(uploadQueue) {
+        val nextToUpload = uploadQueue.find { it.status == UploadStatus.PENDING }
+        if (nextToUpload != null && currentUploadingFile == null) {
             val config = nasConfigurationManager.getConfiguration()!!
             val password = nasConfigurationManager.getPassword()!!
             val nasFileManager = NasFileManager(config, password)
-            var lastTime = System.currentTimeMillis()
-            var lastBytes = 0L
 
-            nasFileManager.uploadFile(fileToUpload!!) { written, total ->
-                bytesUploaded = written
-                totalBytes = total
-                uploadProgress = written.toFloat() / total.toFloat()
+            val updateItem = { newItem: UploadItem ->
+                uploadQueue = uploadQueue.map { if (it.file == newItem.file) newItem else it }
+            }
 
-                val now = System.currentTimeMillis()
-                val timeDiff = (now - lastTime) / 1000.0
-                if (timeDiff > 1) {
-                    val bytesDiff = written - lastBytes
-                    uploadSpeed = bytesDiff / timeDiff
-                    lastTime = now
-                    lastBytes = written
-                }
+            updateItem(nextToUpload.copy(status = UploadStatus.UPLOADING))
+
+            nasFileManager.uploadFile(nextToUpload.file) { written, total ->
+                val progress = if (total > 0) written.toFloat() / total.toFloat() else 0f
+                updateItem(
+                    nextToUpload.copy(
+                        progress = progress,
+                        bytesUploaded = written,
+                        totalBytes = total,
+                        status = UploadStatus.UPLOADING
+                    )
+                )
             }.onFailure {
-                uploadError = it.message
+                updateItem(nextToUpload.copy(status = UploadStatus.FAILED))
             }.onSuccess {
-                nasFiles = nasFiles + fileToUpload!!.name
-                fileToUpload = null
+                nasFiles = nasFiles + nextToUpload.file.name
+                updateItem(nextToUpload.copy(status = UploadStatus.UPLOADED))
             }
         }
     }
@@ -235,86 +237,102 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
         }
     }
 
-    Column(modifier = Modifier.padding(16.dp)) {
-        if (fileToUpload != null) {
-            UploadProgressModal(
-                file = fileToUpload!!,
-                progress = uploadProgress,
-                bytesUploaded = bytesUploaded,
-                totalBytes = totalBytes,
-                uploadSpeed = uploadSpeed,
-                error = uploadError,
-                onCancel = { fileToUpload = null },
-                onRetry = {
-                    uploadError = null
-                    fileToUpload = fileToUpload // Re-trigger the LaunchedEffect
+    Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier
+            .weight(1f)
+            .padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    ChecklistItem(label = "NAS connection setup", isChecked = isNasSetup)
+                    ChecklistItem(label = "Camera connected", isChecked = isCameraConnected)
                 }
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                ChecklistItem(label = "NAS connection setup", isChecked = isNasSetup)
-                ChecklistItem(label = "Camera connected", isChecked = isCameraConnected)
+                IconButton(onClick = { refreshTrigger++ }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                }
             }
-            IconButton(onClick = { refreshTrigger++ }) {
-                Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-            }
-        }
 
-        if (hasPermission) {
-            if (isNasSetup && isCameraConnected) {
-                val cameraFiles = getCameraFiles(context)
-                val config = nasConfigurationManager.getConfiguration()!!
-                val password = nasConfigurationManager.getPassword()!!
-                val nasFileManager = NasFileManager(config, password)
+            if (hasPermission) {
+                if (isNasSetup && isCameraConnected) {
+                    val cameraFiles = getCameraFiles(context)
+                    val config = nasConfigurationManager.getConfiguration()!!
+                    val password = nasConfigurationManager.getPassword()!!
+                    val nasFileManager = NasFileManager(config, password)
 
-                LaunchedEffect(refreshTrigger) {
-                    isLoading = true
-                    nasFileManager.listFiles()
-                        .onSuccess { files -> nasFiles = files }
-                        .onFailure { error ->
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Error listing NAS files: ${error.message}")
+                    LaunchedEffect(refreshTrigger) {
+                        isLoading = true
+                        nasFileManager.listFiles()
+                            .onSuccess { files -> nasFiles = files }
+                            .onFailure { error ->
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Error listing NAS files: ${error.message}")
+                                }
+                            }
+                        isLoading = false
+                    }
+
+                    if (isLoading) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        Column {
+                            FileList(
+                                cameraFiles = cameraFiles,
+                                nasFiles = nasFiles,
+                                selectedFiles = selectedFiles,
+                                onFileSelected = { file, isSelected ->
+                                    selectedFiles = if (isSelected) {
+                                        selectedFiles + file
+                                    } else {
+                                        selectedFiles - file
+                                    }
+                                },
+                                uploadQueue = uploadQueue
+                            )
+
+                            if (selectedFiles.isNotEmpty()) {
+                                Button(
+                                    onClick = {
+                                        val newItems = selectedFiles.map { UploadItem(it, UploadStatus.PENDING) }
+                                        uploadQueue = uploadQueue + newItems
+                                        selectedFiles = emptySet()
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp)
+                                ) {
+                                    Text("Upload ${selectedFiles.size} selected files")
+                                }
                             }
                         }
-                    isLoading = false
-                }
-
-                if (isLoading) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
                     }
-                } else {
-                    FileList(
-                        cameraFiles = cameraFiles,
-                        nasFiles = nasFiles,
-                        onUploadClick = { file -> fileToUpload = file }
-                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Button(onClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                            intent.data = Uri.parse("package:${context.packageName}")
+                            context.startActivity(intent)
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                        }
+                    }) {
+                        Text("Request Permissions")
+                    }
                 }
             }
-        } else {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Button(onClick = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                        intent.data = Uri.parse("package:${context.packageName}")
-                        context.startActivity(intent)
-                    } else {
-                        permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-                    }
-                }) {
-                    Text("Request Permissions")
-                }
-            }
+        }
+        if (uploadQueue.isNotEmpty()) {
+            UploadQueueUI(queue = uploadQueue)
         }
     }
 }
@@ -335,35 +353,85 @@ fun ChecklistItem(label: String, isChecked: Boolean) {
 fun FileList(
     cameraFiles: List<File>,
     nasFiles: List<String>,
-    onUploadClick: (File) -> Unit
+    selectedFiles: Set<File>,
+    onFileSelected: (File, Boolean) -> Unit,
+    uploadQueue: List<UploadItem>
 ) {
     LazyColumn {
         items(cameraFiles) { file ->
+            val isSelected = file in selectedFiles
+            val isUploaded = nasFiles.contains(file.name)
+            val inQueue = uploadQueue.any { it.file == file }
+            val isEnabled = !isUploaded && !inQueue
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clickable(enabled = isEnabled) { onFileSelected(file, !isSelected) }
                     .padding(8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onFileSelected(file, it) },
+                    enabled = isEnabled
+                )
+                Column(modifier = Modifier.padding(start = 8.dp)) {
                     Text(text = file.name)
                     Text(text = formatFileSize(file.length()), style = MaterialTheme.typography.bodySmall)
                 }
-                if (nasFiles.contains(file.name)) {
+
+                if (isUploaded) {
+                    Spacer(Modifier.weight(1f))
                     Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = "Uploaded",
                         tint = MaterialTheme.colorScheme.primary
                     )
-                } else {
-                    Text(
-                        text = "⬆️",
-                        modifier = Modifier.clickable { onUploadClick(file) }
-                    )
+                } else if (inQueue) {
+                    val item = uploadQueue.find { it.file == file }
+                    Spacer(Modifier.weight(1f))
+                    when (item?.status) {
+                        UploadStatus.PENDING -> Text("Pending...")
+                        UploadStatus.UPLOADING -> {
+                            val progress = (item.progress * 100).toInt()
+                            Text("$progress%")
+                        }
+                        UploadStatus.UPLOADED -> Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Uploaded",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        UploadStatus.FAILED -> Text("Failed", color = MaterialTheme.colorScheme.error)
+                        null -> {}
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun UploadQueueUI(queue: List<UploadItem>) {
+    val uploading = queue.filter { it.status == UploadStatus.UPLOADING }
+    val pending = queue.filter { it.status == UploadStatus.PENDING }
+    val failed = queue.filter { it.status == UploadStatus.FAILED }
+
+    val totalProgress = if (queue.isNotEmpty()) {
+        val totalBytes = queue.sumOf { it.file.length() }
+        val uploadedBytes = queue.sumOf { it.bytesUploaded }
+        if (totalBytes > 0) uploadedBytes.toFloat() / totalBytes.toFloat() else 0f
+    } else 0f
+
+    Column(modifier = Modifier
+        .fillMaxWidth()
+        .padding(16.dp)) {
+        Text("Upload Queue", style = MaterialTheme.typography.titleMedium)
+        LinearProgressIndicator(
+            progress = totalProgress,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text("Overall: ${(totalProgress * 100).toInt()}% (${uploading.size} uploading, ${pending.size} pending, ${failed.size} failed)")
     }
 }
 
