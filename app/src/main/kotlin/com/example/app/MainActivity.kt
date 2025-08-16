@@ -281,6 +281,7 @@ fun MainScreen(navController: NavController, snackbarHostState: SnackbarHostStat
                     } else {
                         Column {
                             FileList(
+                                modifier = Modifier.weight(1f),
                                 cameraFiles = cameraFiles,
                                 nasFiles = nasFiles,
                                 selectedFiles = selectedFiles,
@@ -351,13 +352,14 @@ fun ChecklistItem(label: String, isChecked: Boolean) {
 
 @Composable
 fun FileList(
+    modifier: Modifier = Modifier,
     cameraFiles: List<File>,
     nasFiles: List<String>,
     selectedFiles: Set<File>,
     onFileSelected: (File, Boolean) -> Unit,
     uploadQueue: List<UploadItem>
 ) {
-    LazyColumn {
+    LazyColumn(modifier = modifier) {
         items(cameraFiles) { file ->
             val isSelected = file in selectedFiles
             val isUploaded = nasFiles.contains(file.name)
